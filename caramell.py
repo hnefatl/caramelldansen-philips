@@ -6,10 +6,11 @@ import time
 
 from aioify import aioify
 from phue import Bridge, Group, Light, PhueRegistrationException
+from concurrent.futures import ThreadPoolExecutor
 
 _HOSTNAME: str = '10.20.2.11'
 
-speed: float = 0.2 # Configurable speed
+speed: float = 0.3 # Configurable speed
 RED: int = 2000
 CYAN: int = 39000
 PURPLE: int = 55000
@@ -22,55 +23,33 @@ def connect(ip: str) -> Bridge:
         raise RuntimeError("Go press the button on your Bridge and try again! Quick!")
 
 
-def get_group_lights(group_name: str) -> list[Light]:
-    group_id = b.get_group_id_by_name(group_name)
+def set_group_setting(group_id: int, *args, **kwargs):
+    if b.set_group(group_id, *args, **kwargs) is None:
+        raise ValueError(f"Unknown group id {group_id}")
 
-    # TODO: work out if it's guaranteed to be this index
-    group = b.groups[group_id]
+def main():
+    global b
+    b = connect(_HOSTNAME)
+    _group = 'Office'
 
-    return group.lights
+    group_id = b.get_group_id_by_name(_group)
+    if group_id is False:
+        raise ValueError(f"Unknown light group {group_name}")
 
-
-async def set_group_hue(lights: list[Light], hue: int):
-    ops = list(map(lambda x: b.aio_set_light(x.light_id, 'hue', hue, transitiontime=0.1), lights))
-    await asyncio.gather(*ops)
-
-
-async def party_time(lights: list[Light]):
-    preflight_command = {
-        'transitiontime': speed,
+    preflight_settings = {
+        #'transitiontime': speed,
         'on': True,
         'bri': 254,
-        'saturation': 254,
+        #'saturation': 254,
         'hue': YELLOW
     }
-
-    for light in lights:
-        light.on = preflight_command['on']
-        light.transitiontime = preflight_command['transitiontime']
-        light.bri = preflight_command['bri']
-        light.saturation = preflight_command['saturation']
-        light.hue = preflight_command['hue']
+    for setting, value in preflight_settings.items():
+        set_group_setting(group_id, setting, value)
 
     for hue in itertools.cycle([YELLOW, RED, CYAN, PURPLE]):
-        await set_group_hue(lights, hue)
+        set_group_setting(group_id, 'hue', hue, transitiontime=0.1)
         time.sleep(speed)
 
 
-async def main():
-    global b
-    b = connect(_HOSTNAME)
-    b.aio_set_light = aioify(obj=b.set_light)
-
-    _group = 'lights.office'
-
-    lights = get_group_lights(group_name=_group)
-    await party_time(lights)
-
-
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main())
-    finally:
-        loop.close()
+    main()
